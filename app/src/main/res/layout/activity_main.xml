@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:descendantFocusability="beforeDescendants"
+    android:focusableInTouchMode="true"
+    tools:context=".MainActivity">
+
+
+    <TextView
+        android:layout_width="300dp"
+        android:layout_height="400dp"
+        android:layout_marginTop="0dp"
+        android:layout_marginLeft="60dp"
+        android:id="@+id/PeripheralTextView"
+        android:scrollbars="vertical"
+        android:maxLines="30" />
+    <Button
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginTop="400dp"
+        android:layout_marginLeft="60dp"
+        android:text="Connect to device with index: "
+        android:id="@+id/ConnectButton"
+        />
+
+    <Button
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginTop="400dp"
+        android:layout_marginLeft="60dp"
+        android:text="Disconnect from device"
+        android:id="@+id/DisconnectButton"
+        />
+    <Button
+
+        android:id="@+id/StartScanButton"
+        android:layout_width="270dp"
+        android:layout_height="95dp"
+        android:layout_marginTop="400dp"
+        android:layout_centerHorizontal="true"
+        android:background="@drawable/layout_round"
+        android:padding="30dp"
+        android:paddingLeft="35dp"
+        android:drawablePadding="25dp"
+        android:text="기기 연결"
+        android:textStyle="bold"
+        android:textSize="22dp"
+        android:textColor="#807D7D">
+    </Button>
+
+    <Button
+
+        android:id="@+id/StopScanButton"
+        android:layout_width="270dp"
+        android:layout_height="95dp"
+        android:layout_marginTop="400dp"
+        android:layout_centerHorizontal="true"
+        android:background="@drawable/layout_round"
+        android:padding="30dp"
+        android:paddingLeft="35dp"
+        android:drawablePadding="25dp"
+        android:text="기기 연결"
+        android:textStyle="bold"
+        android:textSize="22dp"
+        android:textColor="#807D7D">
+    </Button>
+
+    <EditText
+        android:id="@+id/InputIndex"
+        android:layout_width="wrap_content"
+        android:layout_height="1dp"
+        android:layout_alignParentRight="true"
+        android:layout_alignParentBottom="true"
+        android:layout_marginRight="67dp"
+        android:layout_marginBottom="225dp"
+        android:background="@drawable/textviewborder"
+        android:cursorVisible="false"
+        android:inputType="number"
+        android:paddingLeft="10dp"
+        android:singleLine="true" />
+
+</RelativeLayout>
