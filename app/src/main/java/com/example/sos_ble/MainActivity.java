@@ -1,413 +1,275 @@
 package com.example.sos_ble;
 
-import android.Manifest;
-import android.bluetooth.BluetoothAdapter;
+import android.app.AlarmManager;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
-import android.bluetooth.BluetoothManager;
-import android.bluetooth.le.BluetoothLeScanner;
-import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanResult;
+import android.bluetooth.BluetoothProfile;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.net.Uri;
-import android.os.AsyncTask;
-import android.os.Bundle;
+import android.graphics.BitmapFactory;
+import android.os.Build;
 import android.os.Handler;
-import android.text.method.ScrollingMovementMethod;
-import android.view.View;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.TextView;
+import android.os.IBinder;
+import android.os.Looper;
+import android.util.Log;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
-
-import com.google.android.gms.appindexing.Action;
-import com.google.android.gms.appindexing.AppIndex;
-import com.google.android.gms.common.api.GoogleApiClient;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-public class MainActivity extends AppCompatActivity{
-
-    BluetoothManager btManager;
-    BluetoothAdapter btAdapter;
-    BluetoothLeScanner btScanner;
-    Button startScanningButton;
-    Button stopScanningButton;
-    TextView peripheralTextView;
-    String s2 = new String("SOS-R36");
-    private final static int REQUEST_ENABLE_BT = 1;
-    private static final int PERMISSION_REQUEST_COARSE_LOCATION = 1;
-
-    Boolean btScanning = false;
-    int deviceIndex = 0;
-    int findinedx=0;
-    boolean sos_found=false;
-    ArrayList<BluetoothDevice> devicesDiscovered = new ArrayList<BluetoothDevice>();
-    EditText deviceIndexInput;
-    Button connectToDevice;
-    Button disconnectDevice;
-    BluetoothGatt bluetoothGatt;
-
-    public final static String ACTION_GATT_CONNECTED =
-            "com.example.bluetooth.le.ACTION_GATT_CONNECTED";
-    public final static String ACTION_GATT_DISCONNECTED =
-            "com.example.bluetooth.le.ACTION_GATT_DISCONNECTED";
-    public final static String ACTION_GATT_SERVICES_DISCOVERED =
-            "com.example.bluetooth.le.ACTION_GATT_SERVICES_DISCOVERED";
-    public final static String ACTION_DATA_AVAILABLE =
-            "com.example.bluetooth.le.ACTION_DATA_AVAILABLE";
-    public final static String EXTRA_DATA =
-            "com.example.bluetooth.le.EXTRA_DATA";
-
-    public Map<String, String> uuids = new HashMap<String, String>();
+import androidx.core.app.NotificationCompat;
 
 
-    // Stops scanning after 5 seconds.
-    private Handler mHandler = new Handler();
-    private static final long SCAN_PERIOD = 5000;
-    /**
-     * ATTENTION: This was auto-generated to implement the App Indexing API.
-     * See https://g.co/AppIndexing/AndroidStudio for more information.
-     */
-    private GoogleApiClient client;
+import com.example.rescueone.R;
+import com.example.rescueone.activity.MainActivity;
+import com.example.rescueone.sos.FakeCallReceiver;
 
+import java.io.UnsupportedEncodingException;
+import java.util.Calendar;
+import java.util.UUID;
 
+public class ConnectService extends Service {
+
+    private static final String TAG = "SERVICE.CONNECT";
+
+    public static final UUID CCCD = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+    public static final UUID RX_SERVICE_UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+    public static final UUID TX_CHAR_UUID = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
+
+    private static final int STATE_DISCONNECTED = 0;
+    private static final int STATE_CONNECTING = 1;
+    private static final int STATE_CONNECTED = 2;
+
+    public static ConnectResult mConnectResult;
+
+    private BluetoothGatt mBluetoothGatt;
+    private BluetoothDevice mDevice;
+    private int mConnectionState = STATE_DISCONNECTED;
+
+    @Nullable
     @Override
-    protected void onCreate(@Nullable Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-
-        peripheralTextView = (TextView) findViewById(R.id.PeripheralTextView);
-        peripheralTextView.setMovementMethod(new ScrollingMovementMethod());
-        deviceIndexInput = (EditText) findViewById(R.id.InputIndex);
-        deviceIndexInput.setText("0");
-
-        connectToDevice = (Button) findViewById(R.id.ConnectButton);
-        connectToDevice.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                connectToDeviceSelected();
-            }
-        });
-
-
-        disconnectDevice = (Button) findViewById(R.id.DisconnectButton);
-        disconnectDevice.setVisibility(View.INVISIBLE);
-        disconnectDevice.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                disconnectDeviceSelected();
-                Toast.makeText(getApplicationContext(),"제품 연결 끊음",Toast.LENGTH_LONG);
-            }
-        });
-
-        startScanningButton = (Button) findViewById(R.id.StartScanButton);
-        startScanningButton.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                startScanning();
-            }
-        });
-
-        stopScanningButton = (Button) findViewById(R.id.StopScanButton);
-        stopScanningButton.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                stopScanning();
-            }
-        });
-        stopScanningButton.setVisibility(View.INVISIBLE);
-
-        btManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
-        btAdapter = btManager.getAdapter();
-        btScanner = btAdapter.getBluetoothLeScanner();
-
-        if (btAdapter != null && !btAdapter.isEnabled()) {
-            Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-            startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
-        }
-
-
-        // Make sure we have access coarse location enabled, if not, prompt the user to enable it
-        if (this.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            final AlertDialog.Builder builder = new AlertDialog.Builder(this);
-            builder.setTitle("제품 연결을위해 위치 접근 허용이 필요합니다");
-            builder.setMessage("Please grant location access so this app can detect peripherals.");
-            builder.setPositiveButton(android.R.string.ok, null);
-            builder.setOnDismissListener(new DialogInterface.OnDismissListener() {
-                @Override
-                public void onDismiss(DialogInterface dialog) {
-                    requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, PERMISSION_REQUEST_COARSE_LOCATION);
-                }
-            });
-            builder.show();
-        }
-
-        client = new GoogleApiClient.Builder(this).addApi(AppIndex.API).build();
-        
+    public IBinder onBind(Intent intent) {
+        return null;
     }
 
-
-
-
-    // Device scan callback.
-    private ScanCallback leScanCallback = new ScanCallback() {
-        @Override
-        public void onScanResult(int callbackType, ScanResult result) {
-            peripheralTextView.append("Index: " + deviceIndex + ", Device Name: " + result.getDevice().getName() + " rssi: " + result.getRssi() + "\n");
-            devicesDiscovered.add(result.getDevice());
-            deviceIndex++;
-            // auto scroll for text view
-            final int scrollAmount = peripheralTextView.getLayout().getLineTop(peripheralTextView.getLineCount()) - peripheralTextView.getHeight();
-            // if there is no need to scroll, scrollAmount will be <=0
-            if (scrollAmount > 0) {
-                peripheralTextView.scrollTo(0, scrollAmount);
-            }
-            if( (result.getDevice().getName()!= null) &&result.getDevice().getName().equals(s2)){
-                findinedx=deviceIndex-1;
-                sos_found=true;
-//                Toast.makeText(getApplicationContext(),result.getDevice().getName(),Toast.LENGTH_LONG).show();
-                if(sos_found==true)connectToDevice.performClick();
-            }
-        }
-    };
-
-
-    // Device connect call back
-    private final BluetoothGattCallback btleGattCallback = new BluetoothGattCallback() {
-
-        @Override
-        public void onCharacteristicChanged(BluetoothGatt gatt, final BluetoothGattCharacteristic characteristic) {
-            // this will get called anytime you perform a read or write characteristic operation
-            MainActivity.this.runOnUiThread(new Runnable() {
-                public void run() {
-                    peripheralTextView.append("device read or wrote to\n");
-                }
-            });
-        }
-
-        @Override
-        public void onConnectionStateChange(final BluetoothGatt gatt, final int status, final int newState) {
-            // this will get called when a device connects or disconnects
-            System.out.println(newState);
-            switch (newState) {
-                case 0:
-                    MainActivity.this.runOnUiThread(new Runnable() {
-                        public void run() {
-                            Toast.makeText(getApplicationContext(),"제품 연결 해제됨",Toast.LENGTH_LONG).show();
-                            connectToDevice.setVisibility(View.VISIBLE);
-                            disconnectDevice.setVisibility(View.INVISIBLE);
-                        }
-                    });
-                    break;
-                case 2:
-                    MainActivity.this.runOnUiThread(new Runnable() {
-                        public void run() {
-                            Toast.makeText(getApplicationContext(),"제품 연결됨!\n기기연결 버튼을 다시 누르면 연결이 해제됩니다",Toast.LENGTH_LONG).show();
-                            connectToDevice.setVisibility(View.INVISIBLE);
-                            disconnectDevice.setVisibility(View.VISIBLE);
-                        }
-                    });
-
-                    // discover services and characteristics for this device
-                    bluetoothGatt.discoverServices();
-
-                    break;
-                default:
-                    MainActivity.this.runOnUiThread(new Runnable() {
-                        public void run() {
-                            Toast.makeText(getApplicationContext(),"제품 연결 불량, 제품 배터리를 다시 낀 후 버튼을 눌러주세요",Toast.LENGTH_LONG).show();
-                        }
-                    });
-                    break;
-            }
-        }
-
-        @Override
-        public void onServicesDiscovered(final BluetoothGatt gatt, final int status) {
-            // this will get called after the client initiates a 			BluetoothGatt.discoverServices() call
-            MainActivity.this.runOnUiThread(new Runnable() {
-                public void run() {
-                    peripheralTextView.append("device services have been discovered\n");
-                }
-            });
-            displayGattServices(bluetoothGatt.getServices());
-        }
-
-        @Override
-        // Result of a characteristic read operation
-        public void onCharacteristicRead(BluetoothGatt gatt,
-                                         BluetoothGattCharacteristic characteristic,
-                                         int status) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                broadcastUpdate(ACTION_DATA_AVAILABLE, characteristic);
-            }
-        }
-    };
-
-    private void broadcastUpdate(final String action,
-                                 final BluetoothGattCharacteristic characteristic) {
-
-        System.out.println(characteristic.getUuid());
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        Log.d(TAG,"Service create");
+        buildNotification();
+        Toast.makeText(this,"실행",Toast.LENGTH_SHORT).show();
     }
 
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        Log.d(TAG,"Service start command");
+        if(intent == null) {
+            Log.d(TAG,"Intent is null");
+            return START_NOT_STICKY;
+        }
+        else{
+            Log.d(TAG,"Get and connect device");
+            BluetoothDevice device = intent.getParcelableExtra("deviceName");
+            connect(device);
+        }
+        return START_STICKY;
+    }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
-        switch (requestCode) {
-            case PERMISSION_REQUEST_COARSE_LOCATION: {
-                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    System.out.println("coarse location permission granted");
-                } else {
-                    final AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                    builder.setTitle("Functionality limited");
-                    builder.setMessage("Since location access has not been granted, this app will not be able to discover beacons when in the background.");
-                    builder.setPositiveButton(android.R.string.ok, null);
-                    builder.setOnDismissListener(new DialogInterface.OnDismissListener() {
+    public void onDestroy() {
+        Log.d(TAG,"Service destroy");
+        try{
+            if(mBluetoothGatt != null && mBluetoothGatt.connect()){
+                mBluetoothGatt.disconnect();
+                mBluetoothGatt.close();
+                mBluetoothGatt = null;
+            }
+            super.onDestroy();
+        }
+        catch(Exception e){
+            Log.e(TAG,"Service destroy error", e);
+            super.onDestroy();
+        }
+    }
 
-                        @Override
-                        public void onDismiss(DialogInterface dialog) {
-                        }
-
-                    });
-                    builder.show();
-                }
+    //BLE 연결
+    public void connect(@NonNull BluetoothDevice device){
+        mDevice = device;
+        if(mBluetoothGatt == null){
+            mBluetoothGatt = device.connectGatt(this,true, mGattCallback);
+            mConnectionState = STATE_CONNECTING;
+        }
+        else{
+            if(mBluetoothGatt.connect()){
+                mConnectionState = STATE_CONNECTING;
                 return;
+
             }
         }
     }
 
-    public void startScanning() {
-        System.out.println("start scanning");
-        Toast.makeText(getApplicationContext(),"제품 스캔중",Toast.LENGTH_LONG).show();
-        btScanning = true;
-        deviceIndex = 0;
-        devicesDiscovered.clear();
-//        peripheralTextView.setText("");
-//        peripheralTextView.append("Started Scanning\n");
-        startScanningButton.setVisibility(View.INVISIBLE);
-        stopScanningButton.setVisibility(View.VISIBLE);
-        AsyncTask.execute(new Runnable() {
-            @Override
-            public void run() {
-                btScanner.startScan(leScanCallback);
-            }
-        });
-
-        mHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                stopScanning();
-            }
-        }, SCAN_PERIOD);
+    public void disconnect() {
+        if(mBluetoothGatt == null) {
+            return;
+        }
+        Log.d(TAG,"Disconnect GATT Server");
+        mBluetoothGatt.disconnect();
     }
 
-    public void stopScanning() {
-//        System.out.println("stopping scanning");
-//        peripheralTextView.append("Stopped Scanning\n");
-        if(sos_found==false) Toast.makeText(getApplicationContext(),"제품 감지 실패",Toast.LENGTH_LONG).show();
-        else Toast.makeText(getApplicationContext(),"제품 스캔 중지",Toast.LENGTH_LONG).show();
-        btScanning = false;
-        startScanningButton.setVisibility(View.VISIBLE);
-        stopScanningButton.setVisibility(View.INVISIBLE);
-        AsyncTask.execute(new Runnable() {
-            @Override
-            public void run() {
-                btScanner.stopScan(leScanCallback);
-            }
-        });
+    public void close() {
+        if (mBluetoothGatt == null) {
+            return;
+        }
+        Log.d(TAG,"Close GATT Server");
+        mBluetoothGatt.close();
+        mBluetoothGatt = null;
     }
 
-    public void connectToDeviceSelected() {
-//        peripheralTextView.append("Trying to connect to device at index: " + deviceIndexInput.getText() + "\n");
-
-        int deviceSelected = Integer.parseInt(deviceIndexInput.getText().toString());
-        bluetoothGatt = devicesDiscovered.get(deviceSelected).connectGatt(this, false, btleGattCallback);
-    }
-
-    public void disconnectDeviceSelected() {
-//        peripheralTextView.append("Disconnecting from device\n");
-        Toast.makeText(getApplicationContext(),"제품 연결 해제",Toast.LENGTH_LONG).show();
-        sos_found=false;
-        bluetoothGatt.disconnect();
-    }
-
-    private void displayGattServices(List<BluetoothGattService> gattServices) {
-        if (gattServices == null) return;
-
-        // Loops through available GATT Services.
-        for (BluetoothGattService gattService : gattServices) {
-
-            final String uuid = gattService.getUuid().toString();
-            System.out.println("Service discovered: " + uuid);
-            MainActivity.this.runOnUiThread(new Runnable() {
-                public void run() {
-                    peripheralTextView.append("Service disovered: "+uuid+"\n");
-                }
-            });
-            new ArrayList<HashMap<String, String>>();
-            List<BluetoothGattCharacteristic> gattCharacteristics =
-                    gattService.getCharacteristics();
-
-            // Loops through available Characteristics.
-            for (BluetoothGattCharacteristic gattCharacteristic :
-                    gattCharacteristics) {
-
-                final String charUuid = gattCharacteristic.getUuid().toString();
-                System.out.println("Characteristic discovered for service: " + charUuid);
-                MainActivity.this.runOnUiThread(new Runnable() {
-                    public void run() {
-                        peripheralTextView.append("Characteristic discovered for service: "+charUuid+"\n");
-                    }
+    private final BluetoothGattCallback mGattCallback = new BluetoothGattCallback() {
+        /*연결상태 변경 시 호출*/
+        @Override
+        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+            if(newState == BluetoothProfile.STATE_CONNECTED){
+                Log.d(TAG,"Trying to discover service");
+                mConnectionState = STATE_CONNECTED;
+                gatt.discoverServices();
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    mConnectResult.onConnectResult(true, mDevice);
                 });
+            }
+            else if(newState == BluetoothProfile.STATE_DISCONNECTED){
+                Log.d(TAG,"Disconnected from GATT Server");
+                mConnectionState = STATE_DISCONNECTED;
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    mConnectResult.onConnectResult(false, mDevice);
+                });
+            }
+            else {
+                Log.d(TAG,"GATT State:"+ newState);
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    mConnectResult.onConnectResult(false, mDevice);
+                });
+            }
+        }
 
+        /*연결된 BLE의 GATT서비스 발견시 호출*/
+        @Override
+        public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+            try {
+                if (status == BluetoothGatt.GATT_FAILURE)
+                    return;
+                BluetoothGattService RxService = gatt.getService(RX_SERVICE_UUID);
+                BluetoothGattCharacteristic TxCharacteristic = RxService.getCharacteristic(TX_CHAR_UUID);
+                gatt.setCharacteristicNotification(TxCharacteristic, true);
+                BluetoothGattDescriptor descriptor = TxCharacteristic.getDescriptor(CCCD);
+                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                gatt.writeDescriptor(descriptor);
+                Log.d(TAG,"Service Discovery success");
+            }
+            catch (Exception e){
+                Log.e(TAG,"onServicesDiscovered Error",e);
+            }
+        }
+
+        /*GATT 서비스의 특성을 읽었을 때 호출*/
+        @Override
+        public void onCharacteristicRead(BluetoothGatt gatt,
+                                         BluetoothGattCharacteristic characteristic, int status) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                readCharacteristic(characteristic);
+            }
+        }
+
+        /*GATT 서비스의 특성 값이 바뀔 때 호출*/
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt gatt,
+                                            BluetoothGattCharacteristic characteristic) {
+            readCharacteristic(characteristic);
+        }
+    };
+
+    public void readCharacteristic(BluetoothGattCharacteristic characteristic) {
+        Log.d(TAG,"Read Characteristic");
+        if(characteristic.getUuid().equals(TX_CHAR_UUID)){
+            try {
+                String key = new String(characteristic.getValue(),"UTF-8");
+                Log.d(TAG, key);
+                if(key.indexOf("S")==0 && key !=null){
+                    Log.d(TAG,"나는 숏");
+                    mConnectResult.onEmergencyShort(key);
+                }else{
+                    Log.d(TAG,"나는 롱이다");
+                    mConnectResult.onEmergencyLong(key);
+                }
+                //new Handler(Looper.getMainLooper()).post(() -> {
+
+
+            } catch (UnsupportedEncodingException e) {
+                Log.e(TAG,"Encoding error",e);
+                e.printStackTrace();
             }
         }
     }
+//    private void setFakeCall() {
+//        Calendar calendar = Calendar.getInstance();
+//        calendar.setTimeInMillis(System.currentTimeMillis()+1000);  //1초후 울림
+//
+//        Intent intent = new Intent(getApplicationContext(), FakeCallReceiver.class);
+//        AlarmManager alarmManager = (AlarmManager)getSystemService(Context.ALARM_SERVICE);
+//        PendingIntent pendingIntent = PendingIntent.getBroadcast(getApplication(),0,intent,PendingIntent.FLAG_UPDATE_CURRENT);
+//
+//        if(Build.VERSION.SDK_INT > 23) {
+//            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, calendar.getTimeInMillis(), pendingIntent);
+//        }
+//        else if(Build.VERSION.SDK_INT > 19) {
+//            alarmManager.setExact(AlarmManager.RTC_WAKEUP, calendar.getTimeInMillis(), pendingIntent);
+//        }
+//    }
 
-    @Override
-    public void onStart() {
-        super.onStart();
 
-        client.connect();
-        Action viewAction = Action.newAction(
-                Action.TYPE_VIEW, // TODO: choose an action type.
-                "Main Page", // TODO: Define a title for the content shown.
-                // TODO: If you have web page content that matches this app activity's content,
-                // make sure this auto-generated web page URL is correct.
-                // Otherwise, set the URL to null.
-                Uri.parse("http://host/path"),
-                // TODO: Make sure this auto-generated app URL is correct.
-                Uri.parse("android-app://com.example.joelwasserman.androidbleconnectexample/http/host/path")
-        );
-//        AppIndex.AppIndexApi.start(client, viewAction);
+
+    /*OREO이상 백그라운드 서비스 실행을 위하여 notification 필수*/
+    private void buildNotification() {
+        String CHANNEL_ID = "RESCUE ONE";
+        int NOTIFICATION_ID = 101;
+
+        NotificationManager notificationManager = (NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
+        Intent notificationIntent = new Intent(this, MainActivity.class);    //알림 클릭시 실행 액티비티(메인)
+        PendingIntent pendingIntent = PendingIntent.getActivity(this,0, notificationIntent, 0);
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID);
+
+        //OREO API 26 이상
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            builder.setSmallIcon(R.drawable.ic_launcher_foreground); //mipmap 사용시 Oreo 이상에서 시스템 UI 에러남
+            String channelName ="RESCUE ONE";
+            int importance = NotificationManager.IMPORTANCE_LOW;
+
+            //채널
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, channelName, importance);
+
+            if (notificationManager != null) {
+                //채널을 시스템에 설정
+                notificationManager.createNotificationChannel(channel);
+            }
+        }
+        else {
+            builder.setSmallIcon(R.mipmap.ic_launcher) // Oreo 이하에서 mipmap 없으면 에러발생
+                    .setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher_round));   //Oreo 이하에서만 큰 배지 아이콘 띄움
+        }
+
+        builder.setAutoCancel(false)
+                .setContentTitle("RESCUE ONE이 실행 중 입니다.")
+                .setContentIntent(pendingIntent);
+
+        Log.d("TEST", "noti start");
+        // 노티피케이션 실행
+        startForeground(NOTIFICATION_ID,builder.build());
     }
-
-    @Override
-    public void onStop() {
-        super.onStop();
-
-        Action viewAction = Action.newAction(
-                Action.TYPE_VIEW, // TODO: choose an action type.
-                "Main Page", // TODO: Define a title for the content shown.
-                // TODO: If you have web page content that matches this app activity's content,
-                // make sure this auto-generated web page URL is correct.
-                // Otherwise, set the URL to null.
-                Uri.parse("http://host/path"),
-                // TODO: Make sure this auto-generated app URL is correct.
-                Uri.parse("android-app://com.example.joelwasserman.androidbleconnectexample/http/host/path")
-        );
-        //AppIndex.AppIndexApi.end(client, viewAction);
-        client.disconnect();
-    }
-
 }
